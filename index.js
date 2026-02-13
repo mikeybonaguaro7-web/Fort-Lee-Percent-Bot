@@ -233,24 +233,45 @@ function calcStats(userId, calls) {
 
 // ===== COMMANDS =====
 const commandDefs = [
-  new SlashCommandBuilder()
-    .setName("call")
-    .setDescription("Post a Ridgefield-style CAD call card")
-    .addIntegerOption(o => o.setName("cad").setDescription("CAD Number").setRequired(true))
-    .addStringOption(o => o.setName("type_short").setDescription("ALARM / STRUCTURE / MVA / etc").setRequired(true))
-    .addStringOption(o => o.setName("type").setDescription("Full type line (ex: MVC - FLUID SPILL)").setRequired(true))
-    .addStringOption(o => o.setName("location").setDescription("Location (ex: GRAND AVE and LINDEN AVE)").setRequired(true))
-    .addStringOption(o => o.setName("details").setDescription("Extra details (optional)").setRequired(false))
-    .addNumberOption(o => o.setName("points").setDescription("Points for this call")
+ new SlashCommandBuilder()
+  .setName("call")
+  .setDescription("Post a Ridgefield-style CAD call card")
+  // ✅ REQUIRED OPTIONS FIRST
+  .addIntegerOption(o =>
+    o.setName("cad").setDescription("CAD Number").setRequired(true)
+  )
+  .addStringOption(o =>
+    o.setName("type_short").setDescription("ALARM / STRUCTURE / MVA / etc").setRequired(true)
+  )
+  .addStringOption(o =>
+    o.setName("type").setDescription("Full type line (ex: MVC - FLUID SPILL)").setRequired(true)
+  )
+  .addStringOption(o =>
+    o.setName("location").setDescription("Location (ex: GRAND AVE and LINDEN AVE)").setRequired(true)
+  )
+  .addNumberOption(o =>
+    o.setName("points")
+      .setDescription("Points for this call")
       .setRequired(true)
       .addChoices(
         { name: "0", value: 0 },
         { name: "0.5", value: 0.5 },
         { name: "1", value: 1 }
-      ))
-    .addBooleanOption(o => o.setName("counts_against").setDescription("If missed, does it count against you?")
-      .setRequired(true))
-    .addStringOption(o => o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)),
+      )
+  )
+  .addBooleanOption(o =>
+    o.setName("counts_against")
+      .setDescription("If missed, does it count against you?")
+      .setRequired(true)
+  )
+  // ✅ OPTIONAL OPTIONS LAST
+  .addStringOption(o =>
+    o.setName("details").setDescription("Extra details (optional)").setRequired(false)
+  )
+  .addStringOption(o =>
+    o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)
+  )
+
 
   new SlashCommandBuilder()
     .setName("percent")
