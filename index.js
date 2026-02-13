@@ -110,7 +110,6 @@ function quarterKey(date = new Date()) {
 }
 
 function parseUserDate(dateStr) {
-  // expects "YYYY-MM-DD HH:MM" or "YYYY-MM-DDTHH:MM"
   const s = asStr(dateStr, "").trim();
   if (!s) return new Date();
   const parsed = new Date(s.replace(" ", "T"));
@@ -221,6 +220,11 @@ function calcStats(userId, calls) {
   return { possible, earned, pct, made, silent, missed };
 }
 
+function formatPctLine(stats) {
+  if (stats.possible <= 0) return "**0.0%** — 0 / 0";
+  return `**${stats.pct.toFixed(1)}%** — ${stats.earned.toFixed(1)} / ${stats.possible.toFixed(1)}`;
+}
+
 // ===== COMMANDS =====
 // /call required: location, date, type, points
 // CAD auto-generated; counts_against optional (defaults true); details optional
@@ -248,6 +252,10 @@ const commandDefs = [
   new SlashCommandBuilder()
     .setName("resetpercent")
     .setDescription("Reset YOUR attendance and percent"),
+
+  new SlashCommandBuilder()
+    .setName("resetall")
+    .setDescription("⚠️ Clears ALL calls and resets everything"),
 
   new SlashCommandBuilder()
     .setName("leaderboard")
@@ -368,14 +376,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           {
             name: `This Month (${monthKey(now)}) ${monthStatus}`,
             value:
-              `**${m.pct.toFixed(1)}%** — ${m.earned.toFixed(1)} / ${m.possible.toFixed(1)}\n` +
+              `${formatPctLine(m)}\n` +
               `Made: ${m.made} • Silent: ${m.silent} • Missed: ${m.missed}`,
             inline: false
           },
           {
             name: `This Quarter (${thisQuarterKey}) ${quarterStatus}`,
             value:
-              `**${q.pct.toFixed(1)}%** — ${q.earned.toFixed(1)} / ${q.possible.toFixed(1)}\n` +
+              `${formatPctLine(q)}\n` +
               `Made: ${q.made} • Silent: ${q.silent} • Missed: ${q.missed}`,
             inline: false
           }
@@ -396,7 +404,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
       saveData(data);
 
       return interaction.reply({
-        content: "✅ Your attendance has been reset. Your percent is now reset.",
+        content: "✅ Your attendance has been reset.",
+        ephemeral: true
+      });
+    }
+
+    if (interaction.commandName === "resetall") {
+      // clears everything
+      const fresh = { nextId: 1, calls: [] };
+      saveData(fresh);
+
+      return interaction.reply({
+        content: "✅ All calls cleared. Percent is now 0 / 0.",
         ephemeral: true
       });
     }
@@ -424,7 +443,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
       const lines = rows.slice(0, 25).map((r, i) => {
         const ok = r.pct >= MIN_PERCENT ? "✅" : "❌";
-        return `**${i + 1}.** ${ok} <@${r.uid}> — **${r.pct.toFixed(1)}%** (${r.earned.toFixed(1)} / ${r.possible.toFixed(1)})`;
+        const denom = r.possible > 0 ? `${r.earned.toFixed(1)} / ${r.possible.toFixed(1)}` : "0 / 0";
+        return `**${i + 1}.** ${ok} <@${r.uid}> — **${r.pct.toFixed(1)}%** (${denom})`;
       });
 
       const embed = new EmbedBuilder()
