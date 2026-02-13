@@ -17,9 +17,9 @@ const {
 
 // ===== ENV VARS =====
 const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;   // Application ID
-const GUILD_ID = process.env.GUILD_ID;     // Server ID
-const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID; // where the CAD cards post
+const CLIENT_ID = process.env.CLIENT_ID;       // Application ID
+const GUILD_ID = process.env.GUILD_ID;         // Server ID
+const LOG_CHANNEL_ID = process.env.LOG_CHANNEL_ID; // Channel where cards post
 const MIN_PERCENT = Number(process.env.MIN_PERCENT ?? 40);
 
 if (!TOKEN || !CLIENT_ID || !GUILD_ID || !LOG_CHANNEL_ID) {
@@ -28,8 +28,6 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !LOG_CHANNEL_ID) {
 }
 
 // ===== SIMPLE DATA STORE =====
-// Note: Render can wipe local files on redeploy unless you add a persistent disk.
-// This is fine to start; if you want permanent history, tell me and I’ll switch it to a DB.
 const DATA_FILE = path.join(__dirname, "data.json");
 
 function loadData() {
@@ -39,14 +37,24 @@ function loadData() {
     return { nextId: 1, calls: [] };
   }
 }
-
 function saveData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
 }
 
+// ===== SAFE HELPERS =====
+const asStr = (v, fallback = "") => (v === null || v === undefined ? fallback : String(v));
+const nonEmpty = (v, fallback = "N/A") => {
+  const s = asStr(v, "").trim();
+  return s.length ? s : fallback;
+};
+const clip = (s, max) => {
+  s = asStr(s, "");
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+};
+
 // ===== DATE HELPERS (Ridgefield style) =====
 function formatRidgefieldDate(date = new Date()) {
-  // "Thursday, February 12, 2026 at 9:40 PM"
+  // "Thursday, February 12, 2026 at 9:40 PM" (America/New_York)
   const parts = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
@@ -98,12 +106,12 @@ function monthKeySortable(date = new Date()) {
 }
 
 function quarterKey(date = new Date()) {
-  // "2026-Q1"
   const d = new Date(date.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const q = Math.floor(d.getMonth() / 3) + 1;
   return `${d.getFullYear()}-Q${q}`;
 }
 
+// ===== ATTENDANCE HELPERS =====
 function mentionList(ids) {
   return ids.length ? ids.map((id) => `<@${id}>`).join("\n") : "_None_";
 }
@@ -114,54 +122,49 @@ function buildAttendanceLists(attendance) {
   const missed = [];
   for (const [uid, st] of Object.entries(attendance || {})) {
     if (st === "MADE") made.push(uid);
-    if (st === "SILENT") silent.push(uid);
-    if (st === "MISSED") missed.push(uid);
+    else if (st === "SILENT") silent.push(uid);
+    else if (st === "MISSED") missed.push(uid);
   }
   return { made, silent, missed };
 }
 
-function buildButtons(callId) {
+function buildButtons(callId, points) {
+  // Label includes point value like your screenshot buttons: "Made (1)" etc
+  const p = Number(points ?? 1);
+  const madeLabel = `Made (${p})`;
+  const silentLabel = `Silent (${Math.min(0.5, p)})`;
+  const missedLabel = `Missed (0)`;
+
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`att:${callId}:MADE`).setLabel("Made").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`att:${callId}:SILENT`).setLabel("Silent").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`att:${callId}:MISSED`).setLabel("Missed").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder()
+      .setCustomId(`att:${callId}:MADE`)
+      .setLabel(madeLabel)
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`att:${callId}:SILENT`)
+      .setLabel(silentLabel)
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`att:${callId}:MISSED`)
+      .setLabel(missedLabel)
+      .setStyle(ButtonStyle.Danger)
   );
 }
+
+// ===== EMBED BUILDER =====
 function buildCallEmbed(call) {
   const { made, silent, missed } = buildAttendanceLists(call.attendance);
 
-  // --- Helpers to prevent crashes + Discord "Invalid Form Body" ---
-  const asStr = (v, fallback = "") =>
-    v === null || v === undefined ? fallback : String(v);
-
-  const upper = (v, fallback = "ALARM") =>
-    asStr(v, fallback).trim().toUpperCase();
-
-  const nonEmpty = (v, fallback = "None") => {
-    const s = asStr(v, "").trim();
-    return s.length ? s : fallback;
-  };
-
-  const clip = (s, max) => {
-    s = asStr(s, "");
-    return s.length > max ? s.slice(0, max - 1) + "…" : s;
-  };
-
-  // mentionList returns "_None_" when empty, so this is safe
-  const safeMentionList = (arr) => nonEmpty(mentionList(arr), "_None_");
-
-  // --- Safe call fields ---
   const cad = nonEmpty(call.cad, "N/A");
   const ridgeDate = nonEmpty(call.ridgeDate, "Unknown date/time");
   const countTowards = nonEmpty(call.countTowards, "Unknown");
   const points = Number(call.points ?? 1);
   const countsAgainst = Boolean(call.countsAgainst);
 
+  const typeShort = nonEmpty(call.typeShort, "ALARM").toUpperCase();
   const type = nonEmpty(call.type, "Unknown Type");
   const location = nonEmpty(call.location, "Unknown Location");
   const details = asStr(call.details, "").trim();
-
-  const titleText = upper(call.typeShort ?? call.type ?? "ALARM", "ALARM");
 
   const detailBlock =
     `(FortLeeFire-CAD) -\n` +
@@ -169,7 +172,7 @@ function buildCallEmbed(call) {
     `${location}` +
     (details ? `\n${details}` : "");
 
-  const description =
+  const desc =
     `**CAD Number =** ${cad}\n` +
     `**${ridgeDate}**\n\n` +
     `**Will Count Towards:**\n` +
@@ -183,26 +186,22 @@ function buildCallEmbed(call) {
     `${detailBlock}`;
 
   const embed = new EmbedBuilder()
-    .setTitle(clip(`🚨 ${titleText} 🚨`, 256))
-    .setDescription(clip(description, 4096))
+    .setTitle(clip(`🚨 ${typeShort} 🚨`, 256))
+    .setDescription(clip(desc, 4096))
     .addFields(
-      { name: "✅ Made", value: clip(safeMentionList(made), 1024), inline: true },
-      { name: "🔇 Silent", value: clip(safeMentionList(silent), 1024), inline: true },
-      { name: "❌ Missed", value: clip(safeMentionList(missed), 1024), inline: true }
+      { name: "✅ Made", value: clip(mentionList(made), 1024), inline: true },
+      { name: "🔇 Silent", value: clip(mentionList(silent), 1024), inline: true },
+      { name: "❌ Missed", value: clip(mentionList(missed), 1024), inline: true }
     )
     .setFooter({ text: clip(`Event ID: ${nonEmpty(call.id, "N/A")}`, 2048) })
     .setTimestamp(call.createdAt ? new Date(call.createdAt) : new Date());
 
   return embed;
 }
-// Key rule: "Counts Against" decides if a missed call hurts your denominator.
-// - If points = 0 => informational (does not affect percent)
-// - If countsAgainst = true:
-//      possible += points always
-//      MADE earns points, SILENT earns min(0.5, points), MISSED earns 0
-// - If countsAgainst = false:
-//      Only counts if you MADE or SILENT (it can help, but missing won’t hurt)
-//      possible += points only if response is MADE or SILENT
+
+// ===== SCORING =====
+// countsAgainst = true => always counts in denominator
+// countsAgainst = false => only counts if you responded (made/silent)
 function calcStats(userId, calls) {
   let possible = 0;
   let earned = 0;
@@ -210,7 +209,7 @@ function calcStats(userId, calls) {
 
   for (const c of calls) {
     const p = Number(c.points) || 0;
-    if (p === 0) continue; // informational
+    if (p === 0) continue;
 
     const resp = c.attendance?.[userId]; // MADE/SILENT/MISSED/undefined
 
@@ -220,10 +219,9 @@ function calcStats(userId, calls) {
       else if (resp === "SILENT") { earned += Math.min(0.5, p); silent++; }
       else { missed++; }
     } else {
-      // only counts if you actually did something
       if (resp === "MADE") { possible += p; earned += p; made++; }
       else if (resp === "SILENT") { possible += p; earned += Math.min(0.5, p); silent++; }
-      else { missed++; } // tracked, but doesn't affect % denominator
+      else { missed++; }
     }
   }
 
@@ -233,47 +231,26 @@ function calcStats(userId, calls) {
 
 // ===== COMMANDS =====
 const commandDefs = [
-new SlashCommandBuilder()
-  .setName("call")
-  .setDescription("Post a Ridgefield-style CAD call card")
+  new SlashCommandBuilder()
+    .setName("call")
+    .setDescription("Post a Ridgefield-style CAD call card")
 
-  // ✅ REQUIRED options FIRST
-  .addIntegerOption(o =>
-    o.setName("cad").setDescription("CAD Number").setRequired(true)
-  )
-  .addStringOption(o =>
-    o.setName("type_short").setDescription("ALARM / STRUCTURE / MVA / etc").setRequired(true)
-  )
-  .addStringOption(o =>
-    o.setName("type").setDescription("Full type line (ex: MVC - FLUID SPILL)").setRequired(true)
-  )
-  .addStringOption(o =>
-    o.setName("location").setDescription("Location (ex: GRAND AVE and LINDEN AVE)").setRequired(true)
-  )
-  .addNumberOption(o =>
-    o.setName("points")
-      .setDescription("Points for this call")
-      .setRequired(true)
-      .addChoices(
-        { name: "0", value: 0 },
-        { name: "0.5", value: 0.5 },
-        { name: "1", value: 1 }
-      )
-  )
-  .addBooleanOption(o =>
-    o.setName("counts_against")
-      .setDescription("If missed, does it count against you?")
-      .setRequired(true)
-  )
+    // ✅ REQUIRED options FIRST (fixes your error)
+    .addIntegerOption(o => o.setName("cad").setDescription("CAD Number").setRequired(true))
+    .addStringOption(o => o.setName("type_short").setDescription("ALARM / STRUCTURE / MVA / etc").setRequired(true))
+    .addStringOption(o => o.setName("type").setDescription("Full type line (ex: MVC - FLUID SPILL)").setRequired(true))
+    .addStringOption(o => o.setName("location").setDescription("Location (ex: GRAND AVE and LINDEN AVE)").setRequired(true))
+    .addNumberOption(o => o.setName("points").setDescription("Points for this call").setRequired(true).addChoices(
+      { name: "0", value: 0 },
+      { name: "0.5", value: 0.5 },
+      { name: "1", value: 1 }
+    ))
+    .addBooleanOption(o => o.setName("counts_against").setDescription("If missed, does it count against you?").setRequired(true))
 
-  // ✅ OPTIONAL options LAST
-  .addStringOption(o =>
-    o.setName("details").setDescription("Extra details (optional)").setRequired(false)
-  )
-  .addStringOption(o =>
-    o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)
-  )
-  
+    // ✅ OPTIONAL options LAST
+    .addStringOption(o => o.setName("details").setDescription("Extra details (optional)").setRequired(false))
+    .addStringOption(o => o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)),
+
   new SlashCommandBuilder()
     .setName("percent")
     .setDescription("Show your percent (This Month + Lifetime)"),
@@ -320,7 +297,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       saveData(data);
 
       const embed = buildCallEmbed(call);
-      return interaction.update({ embeds: [embed], components: [buildButtons(call.id)] });
+      return interaction.update({ embeds: [embed], components: [buildButtons(call.id, call.points)] });
     }
 
     // SLASH COMMANDS
@@ -333,9 +310,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const typeShort = interaction.options.getString("type_short");
       const type = interaction.options.getString("type");
       const location = interaction.options.getString("location");
-      const details = interaction.options.getString("details") || "";
       const points = Number(interaction.options.getNumber("points"));
       const countsAgainst = interaction.options.getBoolean("counts_against");
+      const details = interaction.options.getString("details") || "";
       const dtStr = interaction.options.getString("datetime");
 
       let dt = new Date();
@@ -356,11 +333,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         points,
         countsAgainst,
         createdAt: new Date().toISOString(),
+
         ridgeDate: formatRidgefieldDate(dt),
         countTowards: monthKey(dt),
         monthSort: monthKeySortable(dt),
         quarter: quarterKey(dt),
-        attendance: {}
+
+        attendance: {},
       };
 
       data.calls.push(call);
@@ -370,7 +349,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!logCh) return interaction.reply({ content: "LOG_CHANNEL_ID is wrong in Render.", ephemeral: true });
 
       await interaction.reply({ content: `✅ Posted CAD ${cad}.`, ephemeral: true });
-      await logCh.send({ embeds: [buildCallEmbed(call)], components: [buildButtons(call.id)] });
+      await logCh.send({ embeds: [buildCallEmbed(call)], components: [buildButtons(call.id, call.points)] });
       return;
     }
 
@@ -395,14 +374,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           {
             name: `This Month (${monthKey(now)}) ${monthStatus}`,
             value:
-              `**${m.pct.toFixed(1)}%**  —  ${m.earned.toFixed(1)} / ${m.possible.toFixed(1)}\n` +
+              `**${m.pct.toFixed(1)}%** — ${m.earned.toFixed(1)} / ${m.possible.toFixed(1)}\n` +
               `Made: ${m.made} • Silent: ${m.silent} • Missed: ${m.missed}`,
             inline: false
           },
           {
             name: `Lifetime ${lifeStatus}`,
             value:
-              `**${l.pct.toFixed(1)}%**  —  ${l.earned.toFixed(1)} / ${l.possible.toFixed(1)}\n` +
+              `**${l.pct.toFixed(1)}%** — ${l.earned.toFixed(1)} / ${l.possible.toFixed(1)}\n` +
               `Made: ${l.made} • Silent: ${l.silent} • Missed: ${l.missed}`,
             inline: false
           }
@@ -422,7 +401,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       for (const c of monthCalls) {
         for (const uid of Object.keys(c.attendance || {})) users.add(uid);
       }
-      if (users.size === 0) return interaction.reply({ content: "No attendance logged yet this month.", ephemeral: true });
+      if (users.size === 0) {
+        return interaction.reply({ content: "No attendance logged yet this month.", ephemeral: true });
+      }
 
       const rows = [];
       for (const uid of users) {
@@ -472,9 +453,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (err) {
     console.error(err);
     if (interaction.isRepliable()) {
-      try {
-        await interaction.reply({ content: "Error — check Render logs.", ephemeral: true });
-      } catch {}
+      try { await interaction.reply({ content: "Error — check Render logs.", ephemeral: true }); } catch {}
     }
   }
 });
