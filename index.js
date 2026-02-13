@@ -147,24 +147,20 @@ function buildCallEmbed(call) {
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
   };
 
-  // Ensure mentionList never returns empty/undefined
-  const safeMentionList = (arr) => {
-    const val = mentionList(arr);
-    return nonEmpty(val, "None");
-  };
+  // mentionList returns "_None_" when empty, so this is safe
+  const safeMentionList = (arr) => nonEmpty(mentionList(arr), "_None_");
 
   // --- Safe call fields ---
   const cad = nonEmpty(call.cad, "N/A");
   const ridgeDate = nonEmpty(call.ridgeDate, "Unknown date/time");
   const countTowards = nonEmpty(call.countTowards, "Unknown");
-  const points = Number(call.points ?? 1); // default 1
+  const points = Number(call.points ?? 1);
   const countsAgainst = Boolean(call.countsAgainst);
 
   const type = nonEmpty(call.type, "Unknown Type");
   const location = nonEmpty(call.location, "Unknown Location");
   const details = asStr(call.details, "").trim();
 
-  // Title uses typeShort if present; otherwise type; otherwise "ALARM"
   const titleText = upper(call.typeShort ?? call.type ?? "ALARM", "ALARM");
 
   const detailBlock =
@@ -187,26 +183,8 @@ function buildCallEmbed(call) {
     `${detailBlock}`;
 
   const embed = new EmbedBuilder()
-    // Embed title max 256 chars
     .setTitle(clip(`🚨 ${titleText} 🚨`, 256))
-    // Embed description max 4096 chars
     .setDescription(clip(description, 4096))
-    .addFields(
-    // Field value max 1024 chars, name max 256
-  const embed = new EmbedBuilder()
-    .setTitle(clip(`🚨 ${call.typeShort.toUpperCase()} 🚨`, 256))
-    .setDescription(clip(
-      `**CAD Number =** ${call.cad}\n` +
-      `**${call.ridgeDate}**\n\n` +
-      `**Will Count Towards:**\n${call.countTowards}\n\n` +
-      `**Points:**\n` +
-      `Worth **${call.points}** point(s) if made.\n` +
-      (call.countsAgainst
-        ? `If missed, counts against as **${call.points}** point(s)\n\n`
-        : `If missed, **does not** count against.\n\n`) +
-      `**Detail:**\n${detailBlock}`,
-      4096
-    ))
     .addFields(
       { name: "✅ Made", value: clip(safeMentionList(made), 1024), inline: true },
       { name: "🔇 Silent", value: clip(safeMentionList(silent), 1024), inline: true },
@@ -217,7 +195,6 @@ function buildCallEmbed(call) {
 
   return embed;
 }
-
 // Key rule: "Counts Against" decides if a missed call hurts your denominator.
 // - If points = 0 => informational (does not affect percent)
 // - If countsAgainst = true:
