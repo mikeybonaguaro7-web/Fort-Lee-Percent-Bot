@@ -192,22 +192,32 @@ function buildCallEmbed(call) {
     // Embed description max 4096 chars
     .setDescription(clip(description, 4096))
     .addFields(
-      // Field value max 1024 chars, name max 256
+    // Field value max 1024 chars, name max 256
+  const embed = new EmbedBuilder()
+    .setTitle(clip(`🚨 ${call.typeShort.toUpperCase()} 🚨`, 256))
+    .setDescription(clip(
+      `**CAD Number =** ${call.cad}\n` +
+      `**${call.ridgeDate}**\n\n` +
+      `**Will Count Towards:**\n${call.countTowards}\n\n` +
+      `**Points:**\n` +
+      `Worth **${call.points}** point(s) if made.\n` +
+      (call.countsAgainst
+        ? `If missed, counts against as **${call.points}** point(s)\n\n`
+        : `If missed, **does not** count against.\n\n`) +
+      `**Detail:**\n${detailBlock}`,
+      4096
+    ))
+    .addFields(
       { name: "✅ Made", value: clip(safeMentionList(made), 1024), inline: true },
       { name: "🔇 Silent", value: clip(safeMentionList(silent), 1024), inline: true },
       { name: "❌ Missed", value: clip(safeMentionList(missed), 1024), inline: true }
     )
-    .setFooter({ text: clip(`Event ID: ${nonEmpty(call.id, "N/A")}`, 2048) });
+    .setFooter({ text: clip(`Event ID: ${nonEmpty(call.id, "N/A")}`, 2048) })
+    .setTimestamp(call.createdAt ? new Date(call.createdAt) : new Date());
 
   return embed;
 }
 
-    .setTimestamp(new Date(call.createdAt));
-
-  return embed;
-}
-
-// ===== SCORING =====
 // Key rule: "Counts Against" decides if a missed call hurts your denominator.
 // - If points = 0 => informational (does not affect percent)
 // - If countsAgainst = true:
