@@ -1,12 +1,13 @@
 {
   "name": "fort-lee-percent-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.16.3"
+    "discord.js": "^14.16.3",
+    "node-cron": "^3.0.3"
   }
 }
