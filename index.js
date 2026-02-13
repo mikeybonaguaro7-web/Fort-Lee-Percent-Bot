@@ -37,6 +37,7 @@ function loadData() {
     return { nextId: 1, calls: [] };
   }
 }
+
 function saveData(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
 }
@@ -54,7 +55,6 @@ const clip = (s, max) => {
 
 // ===== DATE HELPERS (Ridgefield style) =====
 function formatRidgefieldDate(date = new Date()) {
-  // "Thursday, February 12, 2026 at 9:40 PM" (America/New_York)
   const parts = new Intl.DateTimeFormat("en-US", {
     weekday: "long",
     month: "long",
@@ -80,7 +80,6 @@ function formatRidgefieldDate(date = new Date()) {
 }
 
 function monthKey(date = new Date()) {
-  // "02 / 2026"
   const parts = new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     year: "numeric",
@@ -93,7 +92,6 @@ function monthKey(date = new Date()) {
 }
 
 function monthKeySortable(date = new Date()) {
-  // "2026-02"
   const parts = new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     year: "numeric",
@@ -109,6 +107,14 @@ function quarterKey(date = new Date()) {
   const d = new Date(date.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const q = Math.floor(d.getMonth() / 3) + 1;
   return `${d.getFullYear()}-Q${q}`;
+}
+
+function parseUserDate(dateStr) {
+  // expects "YYYY-MM-DD HH:MM" or "YYYY-MM-DDTHH:MM"
+  const s = asStr(dateStr, "").trim();
+  if (!s) return new Date();
+  const parsed = new Date(s.replace(" ", "T"));
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
 // ===== ATTENDANCE HELPERS =====
@@ -129,25 +135,15 @@ function buildAttendanceLists(attendance) {
 }
 
 function buildButtons(callId, points) {
-  // Label includes point value like your screenshot buttons: "Made (1)" etc
   const p = Number(points ?? 1);
   const madeLabel = `Made (${p})`;
   const silentLabel = `Silent (${Math.min(0.5, p)})`;
   const missedLabel = `Missed (0)`;
 
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`att:${callId}:MADE`)
-      .setLabel(madeLabel)
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(`att:${callId}:SILENT`)
-      .setLabel(silentLabel)
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(`att:${callId}:MISSED`)
-      .setLabel(missedLabel)
-      .setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId(`att:${callId}:MADE`).setLabel(madeLabel).setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`att:${callId}:SILENT`).setLabel(silentLabel).setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`att:${callId}:MISSED`).setLabel(missedLabel).setStyle(ButtonStyle.Danger)
   );
 }
 
@@ -185,7 +181,7 @@ function buildCallEmbed(call) {
     `**Detail:**\n` +
     `${detailBlock}`;
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setTitle(clip(`🚨 ${typeShort} 🚨`, 256))
     .setDescription(clip(desc, 4096))
     .addFields(
@@ -195,13 +191,9 @@ function buildCallEmbed(call) {
     )
     .setFooter({ text: clip(`Event ID: ${nonEmpty(call.id, "N/A")}`, 2048) })
     .setTimestamp(call.createdAt ? new Date(call.createdAt) : new Date());
-
-  return embed;
 }
 
 // ===== SCORING =====
-// countsAgainst = true => always counts in denominator
-// countsAgainst = false => only counts if you responded (made/silent)
 function calcStats(userId, calls) {
   let possible = 0;
   let earned = 0;
@@ -230,30 +222,32 @@ function calcStats(userId, calls) {
 }
 
 // ===== COMMANDS =====
+// /call required: location, date, type, points
+// CAD auto-generated; counts_against optional (defaults true); details optional
 const commandDefs = [
   new SlashCommandBuilder()
     .setName("call")
-    .setDescription("Post a Ridgefield-style CAD call card")
-
-    // ✅ REQUIRED options FIRST (fixes your error)
-    .addIntegerOption(o => o.setName("cad").setDescription("CAD Number").setRequired(true))
-    .addStringOption(o => o.setName("type_short").setDescription("ALARM / STRUCTURE / MVA / etc").setRequired(true))
-    .addStringOption(o => o.setName("type").setDescription("Full type line (ex: MVC - FLUID SPILL)").setRequired(true))
-    .addStringOption(o => o.setName("location").setDescription("Location (ex: GRAND AVE and LINDEN AVE)").setRequired(true))
-    .addNumberOption(o => o.setName("points").setDescription("Points for this call").setRequired(true).addChoices(
+    .setDescription("Post a CAD call card")
+    // REQUIRED FIRST
+    .addStringOption(o => o.setName("location").setDescription("Location").setRequired(true))
+    .addStringOption(o => o.setName("date").setDescription('Date/time: "2026-03-02 21:40"').setRequired(true))
+    .addStringOption(o => o.setName("type").setDescription("Type of call (ex: STRUCTURE FIRE, MVA, ALARM)").setRequired(true))
+    .addNumberOption(o => o.setName("points").setDescription("Points").setRequired(true).addChoices(
       { name: "0", value: 0 },
       { name: "0.5", value: 0.5 },
       { name: "1", value: 1 }
     ))
-    .addBooleanOption(o => o.setName("counts_against").setDescription("If missed, does it count against you?").setRequired(true))
-
-    // ✅ OPTIONAL options LAST
-    .addStringOption(o => o.setName("details").setDescription("Extra details (optional)").setRequired(false))
-    .addStringOption(o => o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)),
+    // OPTIONAL LAST
+    .addBooleanOption(o => o.setName("counts_against").setDescription("Counts against if missed (default true)").setRequired(false))
+    .addStringOption(o => o.setName("details").setDescription("Extra details (optional)").setRequired(false)),
 
   new SlashCommandBuilder()
     .setName("percent")
-    .setDescription("Show your percent (This Month + Lifetime)"),
+    .setDescription("Show your percent (This Month + This Quarter)"),
+
+  new SlashCommandBuilder()
+    .setName("resetpercent")
+    .setDescription("Reset YOUR attendance and percent"),
 
   new SlashCommandBuilder()
     .setName("leaderboard")
@@ -296,8 +290,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       call.attendance[interaction.user.id] = status;
       saveData(data);
 
-      const embed = buildCallEmbed(call);
-      return interaction.update({ embeds: [embed], components: [buildButtons(call.id, call.points)] });
+      return interaction.update({
+        embeds: [buildCallEmbed(call)],
+        components: [buildButtons(call.id, call.points)]
+      });
     }
 
     // SLASH COMMANDS
@@ -306,39 +302,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const data = loadData();
 
     if (interaction.commandName === "call") {
-      const cad = interaction.options.getInteger("cad");
-      const typeShort = interaction.options.getString("type_short");
-      const type = interaction.options.getString("type");
-      const location = interaction.options.getString("location");
-      const points = Number(interaction.options.getNumber("points"));
-      const countsAgainst = interaction.options.getBoolean("counts_against");
+      const location = interaction.options.getString("location", true);
+      const dateStr = interaction.options.getString("date", true);
+      const type = interaction.options.getString("type", true);
+      const points = Number(interaction.options.getNumber("points", true));
+      const countsAgainst = interaction.options.getBoolean("counts_against") ?? true;
       const details = interaction.options.getString("details") || "";
-      const dtStr = interaction.options.getString("datetime");
 
-      let dt = new Date();
-      if (dtStr) {
-        // expects "YYYY-MM-DD HH:MM"
-        const normalized = dtStr.trim().replace(" ", "T");
-        const parsed = new Date(normalized);
-        if (!Number.isNaN(parsed.getTime())) dt = parsed;
-      }
+      const dt = parseUserDate(dateStr);
+
+      // Auto CAD number
+      const cad = data.nextId;
 
       const call = {
         id: data.nextId++,
         cad,
-        typeShort,
+        typeShort: type.toUpperCase(),
         type,
         location,
         details,
         points,
         countsAgainst,
         createdAt: new Date().toISOString(),
-
         ridgeDate: formatRidgefieldDate(dt),
         countTowards: monthKey(dt),
         monthSort: monthKeySortable(dt),
         quarter: quarterKey(dt),
-
         attendance: {},
       };
 
@@ -348,24 +337,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const logCh = await client.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
       if (!logCh) return interaction.reply({ content: "LOG_CHANNEL_ID is wrong in Render.", ephemeral: true });
 
-      await interaction.reply({ content: `✅ Posted CAD ${cad}.`, ephemeral: true });
-      await logCh.send({ embeds: [buildCallEmbed(call)], components: [buildButtons(call.id, call.points)] });
+      await interaction.reply({ content: "✅ Call posted.", ephemeral: true });
+      await logCh.send({
+        embeds: [buildCallEmbed(call)],
+        components: [buildButtons(call.id, call.points)]
+      });
       return;
     }
 
     if (interaction.commandName === "percent") {
       const userId = interaction.user.id;
       const now = new Date();
-      const thisMonth = monthKeySortable(now);
 
-      const monthCalls = data.calls.filter(c => c.monthSort === thisMonth);
-      const lifeCalls = data.calls;
+      const thisMonthKey = monthKeySortable(now);
+      const thisQuarterKey = quarterKey(now);
+
+      const monthCalls = data.calls.filter(c => c.monthSort === thisMonthKey);
+      const quarterCalls = data.calls.filter(c => c.quarter === thisQuarterKey);
 
       const m = calcStats(userId, monthCalls);
-      const l = calcStats(userId, lifeCalls);
+      const q = calcStats(userId, quarterCalls);
 
       const monthStatus = m.pct >= MIN_PERCENT ? "✅" : "❌";
-      const lifeStatus = l.pct >= MIN_PERCENT ? "✅" : "❌";
+      const quarterStatus = q.pct >= MIN_PERCENT ? "✅" : "❌";
 
       const embed = new EmbedBuilder()
         .setTitle("📊 Fort Lee % Tracker")
@@ -379,10 +373,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             inline: false
           },
           {
-            name: `Lifetime ${lifeStatus}`,
+            name: `This Quarter (${thisQuarterKey}) ${quarterStatus}`,
             value:
-              `**${l.pct.toFixed(1)}%** — ${l.earned.toFixed(1)} / ${l.possible.toFixed(1)}\n` +
-              `Made: ${l.made} • Silent: ${l.silent} • Missed: ${l.missed}`,
+              `**${q.pct.toFixed(1)}%** — ${q.earned.toFixed(1)} / ${q.possible.toFixed(1)}\n` +
+              `Made: ${q.made} • Silent: ${q.silent} • Missed: ${q.missed}`,
             inline: false
           }
         )
@@ -391,16 +385,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
+    if (interaction.commandName === "resetpercent") {
+      const userId = interaction.user.id;
+
+      for (const call of data.calls) {
+        if (call.attendance && call.attendance[userId]) {
+          delete call.attendance[userId];
+        }
+      }
+      saveData(data);
+
+      return interaction.reply({
+        content: "✅ Your attendance has been reset. Your percent is now reset.",
+        ephemeral: true
+      });
+    }
+
     if (interaction.commandName === "leaderboard") {
       const now = new Date();
       const thisMonth = monthKeySortable(now);
       const monthCalls = data.calls.filter(c => c.monthSort === thisMonth);
 
-      // Gather users who interacted this month
       const users = new Set();
       for (const c of monthCalls) {
         for (const uid of Object.keys(c.attendance || {})) users.add(uid);
       }
+
       if (users.size === 0) {
         return interaction.reply({ content: "No attendance logged yet this month.", ephemeral: true });
       }
@@ -426,11 +436,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     if (interaction.commandName === "rollcall") {
-      const cad = interaction.options.getInteger("cad");
+      const cad = interaction.options.getInteger("cad", true);
       const calls = data.calls.filter(c => c.cad === cad);
       if (!calls.length) return interaction.reply({ content: `No record found for CAD ${cad}.`, ephemeral: true });
 
-      // latest by createdAt
       calls.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       const call = calls[0];
 
@@ -453,7 +462,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   } catch (err) {
     console.error(err);
     if (interaction.isRepliable()) {
-      try { await interaction.reply({ content: "Error — check Render logs.", ephemeral: true }); } catch {}
+      try {
+        await interaction.reply({ content: "Error — check Render logs.", ephemeral: true });
+      } catch {}
     }
   }
 });
