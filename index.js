@@ -127,37 +127,81 @@ function buildButtons(callId) {
     new ButtonBuilder().setCustomId(`att:${callId}:MISSED`).setLabel("Missed").setStyle(ButtonStyle.Danger)
   );
 }
-
 function buildCallEmbed(call) {
   const { made, silent, missed } = buildAttendanceLists(call.attendance);
 
+  // --- Helpers to prevent crashes + Discord "Invalid Form Body" ---
+  const asStr = (v, fallback = "") =>
+    v === null || v === undefined ? fallback : String(v);
+
+  const upper = (v, fallback = "ALARM") =>
+    asStr(v, fallback).trim().toUpperCase();
+
+  const nonEmpty = (v, fallback = "None") => {
+    const s = asStr(v, "").trim();
+    return s.length ? s : fallback;
+  };
+
+  const clip = (s, max) => {
+    s = asStr(s, "");
+    return s.length > max ? s.slice(0, max - 1) + "…" : s;
+  };
+
+  // Ensure mentionList never returns empty/undefined
+  const safeMentionList = (arr) => {
+    const val = mentionList(arr);
+    return nonEmpty(val, "None");
+  };
+
+  // --- Safe call fields ---
+  const cad = nonEmpty(call.cad, "N/A");
+  const ridgeDate = nonEmpty(call.ridgeDate, "Unknown date/time");
+  const countTowards = nonEmpty(call.countTowards, "Unknown");
+  const points = Number(call.points ?? 1); // default 1
+  const countsAgainst = Boolean(call.countsAgainst);
+
+  const type = nonEmpty(call.type, "Unknown Type");
+  const location = nonEmpty(call.location, "Unknown Location");
+  const details = asStr(call.details, "").trim();
+
+  // Title uses typeShort if present; otherwise type; otherwise "ALARM"
+  const titleText = upper(call.typeShort ?? call.type ?? "ALARM", "ALARM");
+
   const detailBlock =
     `(FortLeeFire-CAD) -\n` +
-    `${call.type}\n` +
-    `${call.location}` +
-    (call.details ? `\n${call.details}` : "");
+    `${type}\n` +
+    `${location}` +
+    (details ? `\n${details}` : "");
+
+  const description =
+    `**CAD Number =** ${cad}\n` +
+    `**${ridgeDate}**\n\n` +
+    `**Will Count Towards:**\n` +
+    `${countTowards}\n\n` +
+    `**Points:**\n` +
+    `Worth **${points}** point(s) if made.\n` +
+    (countsAgainst
+      ? `If missed, counts against as **${points}** point(s)\n\n`
+      : `If missed, **does not** count against.\n\n`) +
+    `**Detail:**\n` +
+    `${detailBlock}`;
 
   const embed = new EmbedBuilder()
-    .setTitle(`🚨 ${call.typeShort.toUpperCase()} 🚨`)
-    .setDescription(
-      `**CAD Number =** ${call.cad}\n` +
-      `**${call.ridgeDate}**\n\n` +
-      `**Will Count Towards:**\n` +
-      `${call.countTowards}\n\n` +
-      `**Points:**\n` +
-      `Worth **${call.points}** point(s) if made.\n` +
-      (call.countsAgainst
-        ? `If missed, counts against as **${call.points}** point(s)\n\n`
-        : `If missed, **does not** count against.\n\n`) +
-      `**Detail:**\n` +
-      `${detailBlock}`
-    )
+    // Embed title max 256 chars
+    .setTitle(clip(`🚨 ${titleText} 🚨`, 256))
+    // Embed description max 4096 chars
+    .setDescription(clip(description, 4096))
     .addFields(
-      { name: "✅ Made", value: mentionList(made), inline: true },
-      { name: "🔇 Silent", value: mentionList(silent), inline: true },
-      { name: "❌ Missed", value: mentionList(missed), inline: true }
+      // Field value max 1024 chars, name max 256
+      { name: "✅ Made", value: clip(safeMentionList(made), 1024), inline: true },
+      { name: "🔇 Silent", value: clip(safeMentionList(silent), 1024), inline: true },
+      { name: "❌ Missed", value: clip(safeMentionList(missed), 1024), inline: true }
     )
-    .setFooter({ text: `Event ID: ${call.id}` })
+    .setFooter({ text: clip(`Event ID: ${nonEmpty(call.id, "N/A")}`, 2048) });
+
+  return embed;
+}
+
     .setTimestamp(new Date(call.createdAt));
 
   return embed;
