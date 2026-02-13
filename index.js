@@ -233,10 +233,11 @@ function calcStats(userId, calls) {
 
 // ===== COMMANDS =====
 const commandDefs = [
- new SlashCommandBuilder()
+new SlashCommandBuilder()
   .setName("call")
   .setDescription("Post a Ridgefield-style CAD call card")
-  // ✅ REQUIRED OPTIONS FIRST
+
+  // ✅ REQUIRED options FIRST
   .addIntegerOption(o =>
     o.setName("cad").setDescription("CAD Number").setRequired(true)
   )
@@ -264,15 +265,15 @@ const commandDefs = [
       .setDescription("If missed, does it count against you?")
       .setRequired(true)
   )
-  // ✅ OPTIONAL OPTIONS LAST
+
+  // ✅ OPTIONAL options LAST
   .addStringOption(o =>
     o.setName("details").setDescription("Extra details (optional)").setRequired(false)
   )
   .addStringOption(o =>
     o.setName("datetime").setDescription('Optional: "2026-03-02 21:40"').setRequired(false)
   )
-
-
+  
   new SlashCommandBuilder()
     .setName("percent")
     .setDescription("Show your percent (This Month + Lifetime)"),
